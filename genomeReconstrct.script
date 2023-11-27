@@ -1,0 +1,47 @@
+#4.	Genome reconstruction in B. racemosa (genomeReconstrct.script)
+##########Genome presence and absence identification####################
+#Collinear block identification
+mkdir 1.Collinear
+cd 1.Collinear
+
+#data
+#baas.pep; baas.gff; subA.pep; subA.gff; subB.pep; subB.gff(4 columns)
+
+#Collinear between sp4 and sp2 (identity>30%,cov>30%)
+sh collinear.sh baas bara
+grep -v '#' baas_bara.collinearity>baas_bara.collinearity.homolog
+cd ..
+
+mkdir 2.match
+cp ../1.Collinear/baas_bara.collinearity.homolog ./
+cut -f 2,3 baas_bara.collinearity.homolog>baas_bara.collinearity.homolog.1
+
+awk '{a[$1]=a[$1]?a[$1]" "$2:$2}END{for (i in a) print i,a[i]}' baas_bara.collinearity.homolog.1  >baas_bara.collinearity.homolog.match
+
+cp subA.gene.name ./
+cp subB.gene.name ./
+python summary.py
+
+awk '$4==0&&$2==0&&$3>0{print $0}' baas_bara.collinearity.homolog.match.summary>subA_loss.txt
+awk '$4==0&&$2>0&&$3==0{print $0}' baas_bara.collinearity.homolog.match.summary>subB_loss.txt
+
+#sort
+awk '{print NR "\t" $2}' baas.gff>baas.gff.num
+python sort.py baas.gff.num subA_loss.txt subA_loss.txt.sort
+sort -n -k 1 subA_loss.txt.sort|cut -f 2 >subA_loss.txt.sort.baas.list
+python sort.py baas.gff.num subB_loss.txt subB_loss.txt.sort
+sort -n -k 1 subB_loss.txt.sort|cut -f 2 >subB_loss.txt.sort.baas.list
+#########gene loss identification########################################
+#bedtools genome coverage
+bwa index bra.fa
+bwa mem -t 4 bra.fa R1.clean.fq  R2.clean.fq | samtools sort -@ 4 -m 4G > illumina.bam
+samtools faidx bra.fa
+bedtools makewindows -g bra.fa.fai -w 1000 > regions.bed
+bedtools coverage -a regions.bed -b illumina.bam -d
+
+#toga gene loss
+lastz bas.fa[multiple] bra.fa[multiple] --gfextend --chain --gapped --inner=2000 --xdrop=9400 --gappedthresh=3000 --hspthresh=2400 --format=axt --output=bas_bra.axt
+axtChain -faQ -faT -linearGap=medium bas_bra.axt bas.fa bra.fa bas_bra.chain
+RepeatFiller.py -c bas_bra.chain --T2bit bas.2bit --Q2bit bra.2bit --output bas_bra_repeatfiller.chain
+chainCleaner bas_bra_repeatfiller.chain bas.2bit bra.2bit bas_bra_clean.chain bra.bed -tSizes=/bas.fa.length -qSizes=bra.fa.length -linearGap=medium
+toga.py bas_bra_clean.chain bas.bed bas.2bit bra.2bit --kt --pn bas_bra --nc ~/software/TOGA/nonslurm-nextflow-config-files/ --cb 3,5 --cjn 500 --ms

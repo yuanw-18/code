@@ -1,0 +1,170 @@
+#3.	Evolutionary history of B. racemosa (evolution.script)
+###########Comparative phylogenetic analyses###############################
+#orthofinder
+orthofinder -f pep_data -S diamond -M msa -T fasttree -t 30
+ln -s pep_data/OrthoFinder/Results_Dec30/Single_Copy_Orthologue_Sequences/*.fa 1.tree_pre
+ls -R *>OG.name
+#tree.pre
+#pep align
+for i in `cat OG.name`;do echo "mafft --quiet --thread 2 --auto ${i} >${i}.afa">>mafft.sh;done
+cat mafft.sh | xargs -i -P 20 bash -c {}
+
+#pep2cds
+for i in `ls *afa`;do grep '>' $i | sed 's/>//g'>${i%%.fa}.id;done
+ln -s all.cds ./
+for i in `ls *.afa.id`; do cat all.cds | seqkit grep -j 20 -f $i > ${i%%.afa.id}.cds;done
+#sort
+for i in `ls *.afa`;do seqkit sort -n $i -o ${i}.sorted;done
+for i in `ls *.cds`;do seqkit sort -n $i -o ${i}.sorted;done
+#pep2cds
+for i in `ls *.cds.sorted`;do pal2nal.pl ${i%%.cds.sorted}.afa.sorted $i -output fasta > ${i%%.cds.sorted}.cds.aln;done
+
+#gblocks
+for i in `ls *.cds.aln`;do Gblocks $i -t=c -b4=5 -b5=a;done
+
+#format
+for i in *.cds.aln-gb; do seqkit sort $i >$i.1;done
+for i in *.1; do seqkit seq $i -w 0 > $i.2;done
+paste -d " " *.2 > all.fa
+
+#phy
+sh ~/script/convertFasta2Phylip.sh all.fa >all.phy
+
+#tree
+iqtree -s all.phy -m MFP -T 30
+raxml-ng --all --msa all.phy --model GTR+F+R5 --bs-trees autoMRE --outgroup orsa --threads 30
+
+perl ~/script/phy2condon123.pl all.phy 
+cat codon1_all.phy codon2_all.phy codon3_all.phy>input.txt
+mcmctree mcmctree.ctl
+
+#figure(R)
+library(treeio)
+library(ggplot2)
+library(ggtree)
+
+mcmctree <- read.mcmctree("FigTree.tre")
+
+insert_minor <- function(major_labs, n_minor) {
+  labs <- c(sapply(major_labs, function(x) c(x, rep("", n_minor))))
+  labs[1:(length(labs)-n_minor)]}
+
+p<-
+ggtree(mcmctree, size=1, mrsd='00-01-01') +
+  #geom_tiplab(as_ylab=TRUE) +
+  geom_nodelab(node = "external") +
+  theme_tree2(plot.margin=margin(16, 16, 30, 30)) +
+  geom_range(range = "`0.95`",color = "#40b8ea",size = 1.5,center = "reltime") 
+
+ggsave(p,filename = "tree.raw.pdf",width = 8,height = 5)
+
+###########Gene family analyses############################################
+awk 'OFS="\t" {$NF=""; print "(null)", $0}' Orthogroups.GeneCount.tsv | sed '1s/(null)/Desc/g' > GeneCount.txt
+python2 cafetutorial_clade_and_size_filter.py -i GeneCount.txt -o GeneCount_filter.txt -s
+cafe cafe.script
+python2 cafetutorial_report_analysis.py -r 0 -i orthofinder_out.cafe -o orthofinder_out.summary
+
+##########Divergent time estimation########################################
+#nucmer
+ln -s genome.fasta.A ./
+seqtk subseq genome.fasta.A subA.select.id>subA.fa
+
+ln -s genome.fasta.B ./
+seqtk subseq genome.fasta.B subB.select.id>subB.fa
+
+nucmer -t 45 --prefix subA_subB subA.fa subB.fa
+
+#best hit，length > 1000，identity > 90
+delta-filter -i 89 -l 1000 -1 subA_subB.delta > subA_subB.delta.filter
+show-coords -r subA_subB.delta.filter > subA_subB.coord
+
+#collinear region
+sed '1,5d' subA_subB.coord|sed 's/^[ \t]*//g'| sed 's/\s\+/,/g'|sed 's/,|,/\t/g'|sed 's/,/\t/g'|awk '!a[$1"\t"$2"\t"$8]++{print}'|awk '!a[$3"\t"$4"\t"$9]++{print}'>subA_subB.coord.uniq
+awk '{print $8"\t"$1"\t"$2}' subA_subB.coord.uniq>subA.corrd.bed
+awk '{print $9"\t"$3"\t"$4}' subA_subB.coord.uniq | awk  '{if($2<$3) {print $0;} else {print $1"\t"$3"\t"$2;}}'>subB.corrd.bed
+
+seqtk subseq subA.fa subA.corrd.bed>subA.corrd.fa
+seqtk subseq subB.fa subB.corrd.bed>subB.corrd.fa
+
+#TE divergence
+source activate LTR
+
+#subA
+BuildDatabase -name subA subA.corrd.fa
+RepeatModeler -database subA -pa 15 -LTRStruct
+RepeatMasker -pa 10 -qq -lib subA-families.fa subA.corrd.fa
+gunzip subA.corrd.fa.cat.gz
+perl calcDivergenceFromAlign.pl -s subA.divsum subA.corrd.fa.cat
+
+#subB
+BuildDatabase -name subB subB.corrd.fa
+RepeatModeler -database subB -pa 15 -LTRStruct
+RepeatMasker -pa 10 -qq -lib subB-families.fa subB.corrd.fa
+gunzip subB.corrd.fa.cat.gz
+perl calcDivergenceFromAlign.pl -s subB.divsum subB.corrd.fa.cat
+
+##########Whole genome duplication events(ks)##############################
+##collinear.sh
+
+#blastp
+makeblastdb -in $1.pep -dbtype prot -parse_seqids -out $1db
+blastp -query $2.pep -db $1db -out $1_$2.blast -evalue 1e-10 -num_threads 30 -outfmt 6 -num_alignments 5
+echo "1.blastp is ok"
+
+#filter(identity>30,cov>30)
+awk '$3>30 {print $0}' $1_$2.blast > $1_$2.new.blast
+seqkit fx2tab -l -n -i $1.pep>$1.pep.len
+seqkit fx2tab -l -n -i $2.pep>$2.pep.len
+python ../script/aln_len.filter.py $2.pep.len $1.pep.len $1_$2.new.blast $1_$2.final.blast
+echo "2.blastp filter is ok"
+
+#mcscan
+mv $1_$2.final.blast $1_$2.blast
+cat $1.gff $2.gff > $1_$2.gff
+MCScanX $1_$2
+echo "3.mcscan is ok"
+
+#filter collinearity pairs not in blastp
+grep -v '#' $1_$2.collinearity|cut -f 2,3|sort|uniq>$1_$2.collinearity.homolog
+python ../script/FilterBlastp.py -b $1_$2.blast -c $1_$2.collinearity.homolog -o $1_$2.collinearity.homolog.clean
+echo "4.filter non-blastp is ok"
+
+#ks.sh
+#pep,cds (filter cds:pep != 3)
+python ../script/LenMatch.py --cds $1.cds --pep $1.pep --homolog $1_$1.collinearity.homolog.clean --output $1_$1.homolog.filter
+echo "1.filter cds and pep len is ok"
+
+#pep match
+python ../script/match.py --peporcds $1.pep --homolog $1_$1.homolog.filter --peporcdsout $1_$1.homolog.filter.pep
+echo "2.pep match is ok"
+
+#pep align
+cat $1_$1.homolog.filter.pep |xargs -n 4 -P 40 bash -c 'echo -e "$0\n$1\n$2\n$3" | mafft --quiet -'>all.pep.aln
+echo "3.pep align is ok"
+
+#pep2cds
+mkdir -p pep cds
+seqkit  seq  all.pep.aln  -w  0  >  all.pep.aln.1
+split -l 4 all.pep.aln.1 -d -a 5 pep/homolog_
+cd pep
+for i in `ls homolog*`;do grep '>' $i | sed 's/>//g'>${i}.id;done
+
+#cds
+mv *.id ../cds
+cd ../cds
+for i in `ls *.id`; do echo "seqtk subseq ../subB_baas.cds $i > ${i}.cds">>match_cds.sh;done
+cat match_cds.sh | xargs -i -P 40 bash -c {}
+
+#pep2cds
+for i in `ls *.cds`;do pal2nal.pl ../pep/${i%%.id.cds} $i -output fasta > ./${i%%.id.cds}.cds.aln;done
+
+#afa2axt
+cat *.cds.aln >all.cds.aln
+seqkit seq -w 0 all.cds.aln>all.cds.aln.1
+python afa2axt.py --afa all.cds.aln.1 --output all.cds.aln.axt
+echo "5.afa2axt is ok"
+cd ..
+
+#ks
+KaKs_Calculator -i cds/all.cds.aln.axt -o $1_$1.ks.txt -m YN
+echo "6.ks is ok"

@@ -1,0 +1,25 @@
+#5.	Expansion of GSLs related genes in B. racemosa (GSL.script)
+#Identification of the critical glucosinolates-related genes
+makeblastdb -in GSL.gene.pep -dbtype prot -parse_seqids -out GSLdb
+blastp -query acch.pep -db GSLdb -out acch_GSL.blast -evalue 1e-10 -num_threads 30 -outfmt 6
+
+makeblastdb -in GSL.gene.pep -dbtype prot -parse_seqids -out GSLdb
+blastp -query aeco.pep -db GSLdb -out aeco_GSL.blast -evalue 1e-10 -num_threads 30 -outfmt 6
+
+makeblastdb -in GSL.gene.pep -dbtype prot -parse_seqids -out GSLdb
+blastp -query baas.pep -db GSLdb -out baas_GSL.blast -evalue 1e-10 -num_threads 30 -outfmt 6
+
+makeblastdb -in GSL.gene.pep -dbtype prot -parse_seqids -out GSLdb
+blastp -query bara.pep -db GSLdb -out bara_GSL.blast -evalue 1e-10 -num_threads 30 -outfmt 6
+
+makeblastdb -in GSL.gene.pep -dbtype prot -parse_seqids -out GSLdb
+blastp -query casi.pep -db GSLdb -out casi_GSL.blast -evalue 1e-10 -num_threads 30 -outfmt 6
+
+makeblastdb -in GSL.gene.pep -dbtype prot -parse_seqids -out GSLdb
+blastp -query dilo.pep -db GSLdb -out dilo_GSL.blast -evalue 1e-10 -num_threads 30 -outfmt 6
+
+makeblastdb -in GSL.gene.pep -dbtype prot -parse_seqids -out GSLdb
+blastp -query prve.pep -db GSLdb -out prve_GSL.blast -evalue 1e-10 -num_threads 30 -outfmt 6
+
+makeblastdb -in GSL.gene.pep -dbtype prot -parse_seqids -out GSLdb
+blastp -query rhsi.pep -db GSLdb -out rhsi_GSL.blast -evalue 1e-10 -num_threads 30 -outfmt 6
