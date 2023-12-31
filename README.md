@@ -1,5 +1,5 @@
 # code
-All codes in "The evolution history of an allotetraploid mangrove tree analyzed with a new tool Allo4D".
+All codes in "The evolution history of an allotetraploid mangrove tree analysed with a new tool Allo4D".
 
 **1.	Development and testing of Allo4D**
 
